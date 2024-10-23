@@ -423,8 +423,8 @@ class ReKepOGEnv:
         if save_path is None:
             save_path = os.path.join(save_dir, f'{datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")}.mp4')
         video_writer = imageio.get_writer(save_path, fps=30)
-        for rgb in self.video_cache:
-            video_writer.append_data(rgb)
+        # for rgb in self.video_cache:
+        #     video_writer.append_data(rgb)
         video_writer.close()
         return save_path
 
@@ -435,7 +435,8 @@ class ReKepOGEnv:
         """
         this is supposed to be for true ee pose (franka hand) in robot frame
         """
-        current_pos = self.robot.get_eef_position()
+        current_pos = self.robot.get_eef_position() 
+        current_pos = current_pos.detach().cpu().numpy()
         current_xyzw = self.robot.get_eef_orientation()
         current_rotmat = T.quat2mat(current_xyzw)
         target_rotmat = T.quat2mat(target_xyzw)
@@ -465,7 +466,8 @@ class ReKepOGEnv:
             # convert world pose to robot pose
             target_pose_robot = np.dot(self.world2robot_homo, T.convert_pose_quat2mat(target_pose_world))
             # convert to relative pose to be used with the underlying controller
-            relative_position = target_pose_robot[:3, 3] - self.robot.get_relative_eef_position()
+            relative_eef_position = self.robot.get_relative_eef_position().detach().cpu().numpy()
+            relative_position = target_pose_robot[:3, 3] - relative_eef_position
             relative_quat = T.quat_distance(T.mat2quat(target_pose_robot[:3, :3]), self.robot.get_relative_eef_orientation())
             assert isinstance(self.robot, Fetch), "this action space is only for fetch"
             action = np.zeros(12)  # first 3 are base, which we don't use

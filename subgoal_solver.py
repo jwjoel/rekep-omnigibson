@@ -57,7 +57,8 @@ def objective(opt_vars,
     debug_dict['ik_cost'] = ik_cost
     cost += ik_cost
     if ik_result.success:
-        reset_reg = np.linalg.norm(ik_result.cspace_position[:-1] - reset_joint_pos[:-1])
+        reset_joint_pos_np = reset_joint_pos.detach().cpu().numpy()
+        reset_reg = np.linalg.norm(ik_result.cspace_position[:-1] - reset_joint_pos_np[:-1])
         reset_reg = np.clip(reset_reg, 0.0, 3.0)
     else:
         reset_reg = 3.0

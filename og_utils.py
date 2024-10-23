@@ -96,8 +96,11 @@ def pixel_to_3d_points(depth_image, intrinsics, extrinsics):
     fx, fy = intrinsics[0, 0], intrinsics[1, 1]
     cx, cy = intrinsics[0, 2], intrinsics[1, 2]
 
-    # Convert pixel coordinates to normalized camera coordinates
-    z = depth_image
+
+    # Ensure the tensor is on CPU and detached from the computation graph
+    z = depth_image.detach().cpu().numpy()
+
+    # Now proceed with your computation using NumPy arrays
     x = (i - cx) * z / fx
     y = (j - cy) * z / fy
 

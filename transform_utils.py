@@ -8,6 +8,8 @@ import math
 from numba import njit
 import numpy as np
 from scipy.spatial.transform import Rotation as R
+from kornia.geometry.conversions import quaternion_to_rotation_matrix
+import torch
 
 PI = np.pi
 EPS = np.finfo(float).eps * 4.0
@@ -176,9 +178,16 @@ def quat_conjugate(quaternion):
     Returns:
         np.array: (x,y,z,w) quaternion conjugate
     """
+    
+    # Check if pose[0] is a torch.Tensor
+    if isinstance(quaternion, torch.Tensor):
+        np_dtype = torch_dtype_to_numpy_dtype(quaternion.dtype)
+    else:
+        np_dtype = quaternion.dtype
+    
     return np.array(
         (-quaternion[0], -quaternion[1], -quaternion[2], quaternion[3]),
-        dtype=quaternion.dtype,
+        dtype=np_dtype,
     )
 
 
@@ -443,6 +452,17 @@ def mat2euler(rmat):
     M = np.array(rmat, dtype=rmat.dtype, copy=False)[:3, :3]
     return R.from_matrix(M).as_euler("xyz")
 
+def torch_dtype_to_numpy_dtype(torch_dtype):
+    if torch_dtype == torch.float32:
+        return np.float32
+    elif torch_dtype == torch.float64:
+        return np.float64
+    elif torch_dtype == torch.int32:
+        return np.int32
+    elif torch_dtype == torch.int64:
+        return np.int64
+    else:
+        raise TypeError(f"Unsupported torch dtype {torch_dtype}")
 
 def pose2mat(pose):
     """
@@ -455,9 +475,23 @@ def pose2mat(pose):
     Returns:
         np.array: 4x4 homogeneous matrix
     """
-    homo_pose_mat = np.zeros((4, 4), dtype=pose[0].dtype)
-    homo_pose_mat[:3, :3] = quat2mat(pose[1])
-    homo_pose_mat[:3, 3] = np.array(pose[0], dtype=pose[0].dtype)
+    # Check if pose[0] is a torch.Tensor
+    if isinstance(pose[0], torch.Tensor):
+        np_dtype = torch_dtype_to_numpy_dtype(pose[0].dtype)
+        pos_np = pose[0].detach().cpu().numpy()
+    else:
+        np_dtype = pose[0].dtype
+        pos_np = pose[0]
+
+    # Same for pose[1]
+    if isinstance(pose[1], torch.Tensor):
+        orn_np = pose[1].detach().cpu().numpy()
+    else:
+        orn_np = pose[1]
+
+    homo_pose_mat = np.zeros((4, 4), dtype=np_dtype)
+    homo_pose_mat[:3, :3] = quat2mat(orn_np)
+    homo_pose_mat[:3, 3] = np.array(pos_np, dtype=np_dtype)
     homo_pose_mat[3, 3] = 1.0
     return homo_pose_mat
 
@@ -473,6 +507,40 @@ def quat2mat(quaternion):
         np.array: (..., 3, 3) rotation matrix
     """
     return R.from_quat(quaternion).as_matrix()
+
+
+
+# def pose2mat(pose):
+#     """
+#     Converts pose to homogeneous matrix.
+
+#     Args:
+#         pose (2-tuple): a (pos, orn) tuple where pos and orn are torch.Tensors.
+
+#     Returns:
+#         torch.Tensor: 4x4 homogeneous matrix
+#     """
+#     device = torch.device('cpu')
+#     pose_dtype = pose[0].dtype
+
+#     homo_pose_mat = torch.zeros((4, 4), dtype=pose_dtype, device=device)
+#     homo_pose_mat[:3, :3] = quat2mat(pose[1])
+#     homo_pose_mat[:3, 3] = pose[0]
+#     homo_pose_mat[3, 3] = 1.0
+#     return homo_pose_mat
+
+
+# def quat2mat(quaternion):
+#     """
+#     Converts given quaternion to matrix.
+
+#     Args:
+#         quaternion (np.array): (..., 4) (x,y,z,w) float quaternion angles
+
+#     Returns:
+#         np.array: (..., 3, 3) rotation matrix
+#     """
+#     return quaternion_to_rotation_matrix(quaternion)
 
 
 def quat2axisangle(quat):

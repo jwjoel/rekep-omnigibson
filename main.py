@@ -28,7 +28,7 @@ class Main:
         self.config = global_config['main']
         self.bounds_min = np.array(self.config['bounds_min'])
         self.bounds_max = np.array(self.config['bounds_max'])
-        self.visualize = visualize
+        self.visualize = True
         # set random seed
         np.random.seed(self.config['seed'])
         torch.manual_seed(self.config['seed'])
@@ -65,6 +65,7 @@ class Main:
         # ====================================
         if rekep_program_dir is None:
             keypoints, projected_img = self.keypoint_proposer.get_keypoints(rgb, points, mask)
+            print("keypoints", keypoints)
             print(f'{bcolors.HEADER}Got {len(keypoints)} proposed keypoints{bcolors.ENDC}')
             if self.visualize:
                 self.visualizer.show_img(projected_img)

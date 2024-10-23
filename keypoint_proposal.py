@@ -21,6 +21,7 @@ class KeypointProposer:
 
     def get_keypoints(self, rgb, points, masks):
         # preprocessing
+
         transformed_rgb, rgb, points, masks, shape_info = self._preprocess(rgb, points, masks)
         # get features
         features_flat = self._get_features(transformed_rgb, shape_info)
@@ -47,6 +48,7 @@ class KeypointProposer:
 
     def _preprocess(self, rgb, points, masks):
         # convert masks to binary masks
+        masks = masks.cpu() 
         masks = [masks == uid for uid in np.unique(masks)]
         # ensure input shape is compatible with dinov2
         H, W, _ = rgb.shape
@@ -54,6 +56,7 @@ class KeypointProposer:
         patch_w = int(W // self.patch_size)
         new_H = patch_h * self.patch_size
         new_W = patch_w * self.patch_size
+        rgb = rgb.numpy()
         transformed_rgb = cv2.resize(rgb, (new_W, new_H))
         transformed_rgb = transformed_rgb.astype(np.float32) / 255.0  # float32 [H, W, 3]
         # shape info
@@ -94,37 +97,43 @@ class KeypointProposer:
         img_tensors = torch.from_numpy(transformed_rgb).permute(2, 0, 1).unsqueeze(0).to(self.device)  # float32 [1, 3, H, W]
         assert img_tensors.shape[1] == 3, "unexpected image shape"
         features_dict = self.dinov2.forward_features(img_tensors)
+        print("features_dict", features_dict['x_norm_patchtokens'])
         raw_feature_grid = features_dict['x_norm_patchtokens']  # float32 [num_cams, patch_h*patch_w, feature_dim]
+        print("raw_feature_grid shape", raw_feature_grid.shape)
         raw_feature_grid = raw_feature_grid.reshape(1, patch_h, patch_w, -1)  # float32 [num_cams, patch_h, patch_w, feature_dim]
         # compute per-point feature using bilinear interpolation
         interpolated_feature_grid = interpolate(raw_feature_grid.permute(0, 3, 1, 2),  # float32 [num_cams, feature_dim, patch_h, patch_w]
                                                 size=(img_h, img_w),
                                                 mode='bilinear').permute(0, 2, 3, 1).squeeze(0)  # float32 [H, W, feature_dim]
-        features_flat = interpolated_feature_grid.reshape(-1, interpolated_feature_grid.shape[-1])  # float32 [H*W, feature_dim]
+        print("interpolated_feature_grid shape", interpolated_feature_grid.shape)
+        features_flat = interpolated_feature_grid.reshape(-1, interpolated_feature_grid.shape[-1])  # float32 [H*W, feature_dim] e.g 1156 -> 480 * 480, 384
         return features_flat
 
     def _cluster_features(self, points, features_flat, masks):
         candidate_keypoints = []
         candidate_pixels = []
         candidate_rigid_group_ids = []
+
         for rigid_group_id, binary_mask in enumerate(masks):
             # ignore mask that is too large
+            binary_mask = binary_mask.cpu().numpy()
             if np.mean(binary_mask) > self.config['max_mask_ratio']:
                 continue
             # consider only foreground features
-            obj_features_flat = features_flat[binary_mask.reshape(-1)]
+            obj_features_flat = features_flat[binary_mask.reshape(-1)] # dino feature vector
             feature_pixels = np.argwhere(binary_mask)
-            feature_points = points[binary_mask]
+            feature_points = points[binary_mask] # one object points (x, y, z)
             # reduce dimensionality to be less sensitive to noise and texture
             obj_features_flat = obj_features_flat.double()
             (u, s, v) = torch.pca_lowrank(obj_features_flat, center=False)
             features_pca = torch.mm(obj_features_flat, v[:, :3])
-            features_pca = (features_pca - features_pca.min(0)[0]) / (features_pca.max(0)[0] - features_pca.min(0)[0])
+            print("features_pca shape", features_pca.shape)
+            features_pca = (features_pca - features_pca.min(0)[0]) / (features_pca.max(0)[0] - features_pca.min(0)[0]) # object feature after PCA and normalization
             X = features_pca
             # add feature_pixels as extra dimensions
             feature_points_torch = torch.tensor(feature_points, dtype=features_pca.dtype, device=features_pca.device)
             feature_points_torch  = (feature_points_torch - feature_points_torch.min(0)[0]) / (feature_points_torch.max(0)[0] - feature_points_torch.min(0)[0])
-            X = torch.cat([X, feature_points_torch], dim=-1)
+            X = torch.cat([X, feature_points_torch], dim=-1)  # object feature from dino after PCA & object depth
             # cluster features to get meaningful regions
             cluster_ids_x, cluster_centers = kmeans(
                 X=X,

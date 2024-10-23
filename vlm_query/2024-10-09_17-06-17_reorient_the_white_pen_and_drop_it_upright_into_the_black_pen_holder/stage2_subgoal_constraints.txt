@@ -1,0 +1,7 @@
+def stage2_subgoal_constraint1(end_effector, keypoints):
+    """Ensure the white pen is upright (parallel to the z-axis). Use keypoints 1 and 3 to form the pen's orientation vector."""
+    pen_vector = keypoints[3] - keypoints[1]
+    z_axis = np.array([0, 0, 1])
+    cost = np.linalg.norm(np.cross(pen_vector, z_axis))  # Minimize the angle between the pen and the z-axis
+    return cost
+
